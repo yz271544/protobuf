@@ -71,6 +71,8 @@ namespace Google.Protobuf.WellKnownTypes
                 Uint64Field = 4
             };
 
+            MessageParsingHelpers.AssertWritingMessage(message);
+
             MessageParsingHelpers.AssertRoundtrip(TestWellKnownTypes.Parser, message, parsed =>
             {
                 Assert.AreEqual("x", parsed.StringField);
@@ -82,6 +84,28 @@ namespace Google.Protobuf.WellKnownTypes
                 Assert.AreEqual(2L, parsed.Int64Field);
                 Assert.AreEqual(3U, parsed.Uint32Field);
                 Assert.AreEqual(4UL, parsed.Uint64Field);
+            });
+        }
+
+        [Test]
+        public void NegativeSingleValues()
+        {
+            var message = new TestWellKnownTypes
+            {
+                FloatField = -12.5f,
+                DoubleField = -12.25d,
+                Int32Field = -1,
+                Int64Field = -2
+            };
+
+            MessageParsingHelpers.AssertWritingMessage(message);
+
+            MessageParsingHelpers.AssertRoundtrip(TestWellKnownTypes.Parser, message, parsed =>
+            {
+                Assert.AreEqual(-12.5f, parsed.FloatField);
+                Assert.AreEqual(-12.25d, parsed.DoubleField);
+                Assert.AreEqual(-1, parsed.Int32Field);
+                Assert.AreEqual(-2L, parsed.Int64Field);
             });
         }
 
@@ -100,6 +124,8 @@ namespace Google.Protobuf.WellKnownTypes
                 Uint32Field = 0,
                 Uint64Field = 0
             };
+
+            MessageParsingHelpers.AssertWritingMessage(message);
 
             MessageParsingHelpers.AssertRoundtrip(TestWellKnownTypes.Parser, message, parsed =>
             {
@@ -144,6 +170,8 @@ namespace Google.Protobuf.WellKnownTypes
             // Just to test a single value for sanity...
             Assert.AreEqual("Second", message.StringField[1]);
 
+            MessageParsingHelpers.AssertWritingMessage(message);
+
             MessageParsingHelpers.AssertRoundtrip(RepeatedWellKnownTypes.Parser, message);
         }
 
@@ -169,6 +197,8 @@ namespace Google.Protobuf.WellKnownTypes
             var message = new RepeatedWellKnownTypes { Int32Field = { 5, 0 } };
             var actualBytes = message.ToByteArray();
             Assert.AreEqual(expectedBytes, actualBytes);
+
+            MessageParsingHelpers.AssertWritingMessage(message);
         }
 
         [Test]
@@ -195,6 +225,8 @@ namespace Google.Protobuf.WellKnownTypes
 
             // Just to test a single value for sanity...
             Assert.AreEqual("Second", message.StringField[12]);
+
+            MessageParsingHelpers.AssertWritingMessage(message);
 
             MessageParsingHelpers.AssertRoundtrip(MapWellKnownTypes.Parser, message);
         }

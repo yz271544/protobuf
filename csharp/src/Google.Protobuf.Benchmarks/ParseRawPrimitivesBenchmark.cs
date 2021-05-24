@@ -54,10 +54,12 @@ namespace Google.Protobuf.Benchmarks
 
         // key is the encodedSize of string values
         Dictionary<int, byte[]> stringInputBuffers;
+        Dictionary<int, ReadOnlySequence<byte>> stringInputBuffersSegmented;
 
         Random random = new Random(417384220);  // random but deterministic seed
 
         public IEnumerable<int> StringEncodedSizes => new[] { 1, 4, 10, 105, 10080 };
+        public IEnumerable<int> StringSegmentedEncodedSizes => new[] { 105, 10080 };
 
         [GlobalSetup]
         public void GlobalSetup()
@@ -78,10 +80,17 @@ namespace Google.Protobuf.Benchmarks
             fixedIntInputBuffer = CreateBufferWithRandomData(random, BytesToParse / sizeof(long), sizeof(long), paddingValueCount);
 
             stringInputBuffers = new Dictionary<int, byte[]>();
-            foreach(var encodedSize in StringEncodedSizes)
+            foreach (var encodedSize in StringEncodedSizes)
             {
                 byte[] buffer = CreateBufferWithStrings(BytesToParse / encodedSize, encodedSize, encodedSize < 10 ? 10 : 1 );
                 stringInputBuffers.Add(encodedSize, buffer);
+            }
+
+            stringInputBuffersSegmented = new Dictionary<int, ReadOnlySequence<byte>>();
+            foreach (var encodedSize in StringSegmentedEncodedSizes)
+            {
+                byte[] buffer = CreateBufferWithStrings(BytesToParse / encodedSize, encodedSize, encodedSize < 10 ? 10 : 1);
+                stringInputBuffersSegmented.Add(encodedSize, ReadOnlySequenceFactory.CreateWithContent(buffer, segmentSize: 128, addEmptySegmentDelimiters: false));
             }
         }
 
@@ -301,6 +310,19 @@ namespace Google.Protobuf.Benchmarks
         }
 
         [Benchmark]
+        [ArgumentsSource(nameof(StringSegmentedEncodedSizes))]
+        public int ParseString_ParseContext_MultipleSegments(int encodedSize)
+        {
+            InitializeParseContext(stringInputBuffersSegmented[encodedSize], out ParseContext ctx);
+            int sum = 0;
+            for (int i = 0; i < BytesToParse / encodedSize; i++)
+            {
+                sum += ctx.ReadString().Length;
+            }
+            return sum;
+        }
+
+        [Benchmark]
         [ArgumentsSource(nameof(StringEncodedSizes))]
         public int ParseBytes_CodedInputStream(int encodedSize)
         {
@@ -326,9 +348,27 @@ namespace Google.Protobuf.Benchmarks
             return sum;
         }
 
+        [Benchmark]
+        [ArgumentsSource(nameof(StringSegmentedEncodedSizes))]
+        public int ParseBytes_ParseContext_MultipleSegments(int encodedSize)
+        {
+            InitializeParseContext(stringInputBuffersSegmented[encodedSize], out ParseContext ctx);
+            int sum = 0;
+            for (int i = 0; i < BytesToParse / encodedSize; i++)
+            {
+                sum += ctx.ReadBytes().Length;
+            }
+            return sum;
+        }
+
         private static void InitializeParseContext(byte[] buffer, out ParseContext ctx)
         {
             ParseContext.Initialize(new ReadOnlySequence<byte>(buffer), out ctx);
+        }
+
+        private static void InitializeParseContext(ReadOnlySequence<byte> buffer, out ParseContext ctx)
+        {
+            ParseContext.Initialize(buffer, out ctx);
         }
 
         private static byte[] CreateBufferWithRandomVarints(Random random, int valueCount, int encodedSize, int paddingValueCount)
@@ -337,7 +377,7 @@ namespace Google.Protobuf.Benchmarks
             CodedOutputStream cos = new CodedOutputStream(ms);
             for (int i = 0; i < valueCount + paddingValueCount; i++)
             {
-                cos.WriteUInt64(RandomUnsignedVarint(random, encodedSize));
+                cos.WriteUInt64(RandomUnsignedVarint(random, encodedSize, false));
             }
             cos.Flush();
             var buffer = ms.ToArray();
@@ -386,11 +426,11 @@ namespace Google.Protobuf.Benchmarks
         /// <summary>
         /// Generate a random value that will take exactly "encodedSize" bytes when varint-encoded.
         /// </summary>
-        private static ulong RandomUnsignedVarint(Random random, int encodedSize)
+        public static ulong RandomUnsignedVarint(Random random, int encodedSize, bool fitsIn32Bits)
         {
             Span<byte> randomBytesBuffer = stackalloc byte[8];
 
-            if (encodedSize < 1 || encodedSize > 10)
+            if (encodedSize < 1 || encodedSize > 10 || (fitsIn32Bits && encodedSize > 5))
             {
                 throw new ArgumentException("Illegal encodedSize value requested", nameof(encodedSize));
             }
@@ -405,6 +445,12 @@ namespace Google.Protobuf.Benchmarks
                 // only use the number of random bits we need
                 ulong bitmask = encodedSize < 10 ? ((1UL << (encodedSize * bitsPerByte)) - 1) : ulong.MaxValue;
                 result = randomValue & bitmask;
+
+                if (fitsIn32Bits)
+                {
+                    // make sure the resulting value is representable by a uint.
+                    result &= uint.MaxValue;
+                }
 
                 if (encodedSize == 10)
                 {
@@ -443,7 +489,7 @@ namespace Google.Protobuf.Benchmarks
             return buffer;
         }
 
-        private static string CreateStringWithEncodedSize(int encodedSize)
+        public static string CreateStringWithEncodedSize(int encodedSize)
         {
             var str = new string('a', encodedSize);
             while (CodedOutputStream.ComputeStringSize(str) > encodedSize)
@@ -451,6 +497,35 @@ namespace Google.Protobuf.Benchmarks
                 str = str.Substring(1);
             }
 
+            if (CodedOutputStream.ComputeStringSize(str) != encodedSize)
+            {
+                throw new InvalidOperationException($"Generated string with wrong encodedSize");
+            }
+            return str;
+        }
+
+        public static string CreateNonAsciiStringWithEncodedSize(int encodedSize)
+        {
+            if (encodedSize < 3)
+            {
+                throw new ArgumentException("Illegal encoded size for a string with non-ascii chars.");
+            }
+            var twoByteChar = '\u00DC';  // U-umlaut, UTF8 encoding has 2 bytes
+            var str = new string(twoByteChar, encodedSize / 2);
+            while (CodedOutputStream.ComputeStringSize(str) > encodedSize)
+            {
+                str = str.Substring(1);
+            }
+
+            // add padding of ascii characters to reach the desired encoded size.
+            while (CodedOutputStream.ComputeStringSize(str) < encodedSize)
+            {
+                str += 'a';
+            }
+
+            // Note that for a few specific encodedSize values, it might be impossible to generate
+            // the string with the desired encodedSize using the algorithm above. For testing purposes, checking that
+            // the encoded size we got is actually correct is good enough.
             if (CodedOutputStream.ComputeStringSize(str) != encodedSize)
             {
                 throw new InvalidOperationException($"Generated string with wrong encodedSize");

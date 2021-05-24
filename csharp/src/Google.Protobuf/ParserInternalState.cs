@@ -43,23 +43,23 @@ using Google.Protobuf.Collections;
 
 namespace Google.Protobuf
 {
-    
+
     // warning: this is a mutable struct, so it needs to be only passed as a ref!
     internal struct ParserInternalState
     {
-        // NOTE: the Span representing the current buffer is kept separate so that this doesn't have to be a ref struct and so it can live
+        // NOTE: the Span representing the current buffer is kept separate so that this doesn't have to be a ref struct and so it can
         // be included in CodedInputStream's internal state
 
         /// <summary>
         /// The position within the current buffer (i.e. the next byte to read)
         /// </summary>
         internal int bufferPos;
-        
+
         /// <summary>
         /// Size of the current buffer
         /// </summary>
         internal int bufferSize;
-        
+
         /// <summary>
         /// If we are currently inside a length-delimited block, this is the number of
         /// bytes in the buffer that are still available once we leave the delimited block.
@@ -79,9 +79,9 @@ namespace Google.Protobuf
         internal int totalBytesRetired;
 
         internal int recursionDepth;  // current recursion depth
-        
+
         internal SegmentedBufferHelper segmentedBufferHelper;
-        
+
         /// <summary>
         /// The last tag we read. 0 indicates we've read to the end of the stream
         /// (or haven't read anything yet).
@@ -101,7 +101,7 @@ namespace Google.Protobuf
         // If non-null, the top level parse method was started with given coded input stream as an argument
         // which also means we can potentially fallback to calling MergeFrom(CodedInputStream cis) if needed.
         internal CodedInputStream CodedInputStream => segmentedBufferHelper.CodedInputStream;
-        
+
         /// <summary>
         /// Internal-only property; when set to true, unknown fields will be discarded while parsing.
         /// </summary>
